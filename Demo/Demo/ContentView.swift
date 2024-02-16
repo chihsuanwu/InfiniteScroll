@@ -11,12 +11,15 @@ import InfiniteScroll
 struct ContentView: View {
     
     @State private var data: [Int] = Array(0..<10)
+    @State private var enableLoadPrev = true
+    @State private var enableLoadMore = true
     
     var body: some View {
         VStack {
             AutoInfiniteScroll(
-                data: data,
+                data,
                 id: \.self,
+                initialFirstVisibleItem: 3,
                 onLoadPrev: {
                     Task {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -31,6 +34,8 @@ struct ContentView: View {
                         data.append(contentsOf: (max+1..<max+11))
                     }
                 },
+                enableLoadPrev: enableLoadPrev,
+                enableLoadMore: enableLoadMore,
                 progress: {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
@@ -53,8 +58,16 @@ struct ContentView: View {
                 Divider()
             }
             
-            Button("Reload") {
-                data = Array(0..<10)
+            HStack {
+                Button("Load Prev: \(enableLoadPrev ? "true" : "false")") {
+                    enableLoadPrev.toggle()
+                }
+                Button("Reload") {
+                    data = Array(0..<10)
+                }
+                Button("Load More: \(enableLoadMore ? "true" : "false")") {
+                    enableLoadMore.toggle()
+                }
             }
         }
         .padding()
