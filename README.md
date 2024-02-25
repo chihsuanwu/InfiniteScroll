@@ -2,6 +2,13 @@
 
 A SwiftUI implementation of two-direction infinite scrolling.
 
+
+
+[demo](https://github.com/chihsuanwu/InfiniteScroll/assets/22000682/62e9265b-d2f6-4112-b9f8-33baa495b81c)
+
+
+
+
 Note: The underlying Implementation bwtween iOS17+ and iOS16- is different. The iOS17+ version uses new `scrollPosition` and `scrollTargetLayout` to keep the scroll position, whitch is not available in iOS16-. Thus, the iOS16- version uses some workarounds and may not be as smooth as the iOS17+ version.
 
 ## Usage
