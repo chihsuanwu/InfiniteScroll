@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "InfiniteScroll",
     platforms: [
-        .iOS(.v14),
+        .iOS(.v15),
         .macOS(.v14),
     ],
     products: [
