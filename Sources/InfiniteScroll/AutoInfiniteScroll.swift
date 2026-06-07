@@ -27,6 +27,7 @@ where Data: RandomAccessCollection,
     let preventLoadPrevBinding: Binding<Bool>?
     let contentBottomInset: CGFloat
     let contentTopInset: CGFloat
+    let scrollPositionAnchor: UnitPoint
 
     @ViewBuilder private let topProgress: (() -> TopProgress)?
     @ViewBuilder private let bottomProgress: (() -> BottomProgress)?
@@ -47,6 +48,7 @@ where Data: RandomAccessCollection,
         preventLoadPrev: Binding<Bool>? = nil,
         contentBottomInset: CGFloat = 0,
         contentTopInset: CGFloat = 0,
+        scrollPositionAnchor: UnitPoint = .bottom,
         @ViewBuilder topProgress: @escaping () -> TopProgress,
         @ViewBuilder bottomProgress: @escaping () -> BottomProgress,
         @ViewBuilder content: @escaping (Data.Element) -> Content
@@ -65,6 +67,7 @@ where Data: RandomAccessCollection,
         self.preventLoadPrevBinding = preventLoadPrev
         self.contentBottomInset = contentBottomInset
         self.contentTopInset = contentTopInset
+        self.scrollPositionAnchor = scrollPositionAnchor
         self.topProgress = topProgress
         self.bottomProgress = bottomProgress
         self.content = content
@@ -85,6 +88,7 @@ where Data: RandomAccessCollection,
         preventLoadPrev: Binding<Bool>? = nil,
         contentBottomInset: CGFloat = 0,
         contentTopInset: CGFloat = 0,
+        scrollPositionAnchor: UnitPoint = .bottom,
         @ViewBuilder progress: @escaping () -> TopProgress,
         @ViewBuilder content: @escaping (Data.Element) -> Content
     ) where BottomProgress == TopProgress {
@@ -103,6 +107,7 @@ where Data: RandomAccessCollection,
             preventLoadPrev: preventLoadPrev,
             contentBottomInset: contentBottomInset,
             contentTopInset: contentTopInset,
+            scrollPositionAnchor: scrollPositionAnchor,
             topProgress: progress,
             bottomProgress: progress,
             content: content
@@ -124,6 +129,7 @@ where Data: RandomAccessCollection,
         preventLoadPrev: Binding<Bool>? = nil,
         contentBottomInset: CGFloat = 0,
         contentTopInset: CGFloat = 0,
+        scrollPositionAnchor: UnitPoint = .bottom,
         @ViewBuilder content: @escaping (Data.Element) -> Content
     ) where TopProgress == EmptyView, BottomProgress == EmptyView {
         self.data = data
@@ -140,6 +146,7 @@ where Data: RandomAccessCollection,
         self.preventLoadPrevBinding = preventLoadPrev
         self.contentBottomInset = contentBottomInset
         self.contentTopInset = contentTopInset
+        self.scrollPositionAnchor = scrollPositionAnchor
         self.topProgress = nil
         self.bottomProgress = nil
         self.content = content
@@ -162,6 +169,7 @@ where Data: RandomAccessCollection,
                 preventLoadPrevBinding: preventLoadPrevBinding,
                 contentBottomInset: contentBottomInset,
                 contentTopInset: contentTopInset,
+                scrollPositionAnchor: scrollPositionAnchor,
                 topProgress: {
                     if let topProgress {
                         topProgress()

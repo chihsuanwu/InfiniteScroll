@@ -27,6 +27,7 @@ where Data: RandomAccessCollection,
     let preventLoadPrevBinding: Binding<Bool>?
     let contentBottomInset: CGFloat
     let contentTopInset: CGFloat
+    let scrollPositionAnchor: UnitPoint
 
     @ViewBuilder let topProgress: () -> TopProgress
     @ViewBuilder let bottomProgress: () -> BottomProgress
@@ -47,6 +48,7 @@ where Data: RandomAccessCollection,
         preventLoadPrevBinding: Binding<Bool>? = nil,
         contentBottomInset: CGFloat = 0,
         contentTopInset: CGFloat = 0,
+        scrollPositionAnchor: UnitPoint = .bottom,
         @ViewBuilder topProgress: @escaping () -> TopProgress,
         @ViewBuilder bottomProgress: @escaping () -> BottomProgress,
         @ViewBuilder content: @escaping (Data.Element) -> Content
@@ -65,6 +67,7 @@ where Data: RandomAccessCollection,
         self.preventLoadPrevBinding = preventLoadPrevBinding
         self.contentBottomInset = contentBottomInset
         self.contentTopInset = contentTopInset
+        self.scrollPositionAnchor = scrollPositionAnchor
         self.topProgress = topProgress
         self.bottomProgress = bottomProgress
         self.content = content
@@ -121,8 +124,8 @@ where Data: RandomAccessCollection,
                     }
                 }
             }
-            .scrollPosition(id: effectiveScrollPosition, anchor: .bottom)
-            .defaultScrollAnchor(.bottom)
+            .scrollPosition(id: effectiveScrollPosition, anchor: scrollPositionAnchor)
+            .infiniteScrollDefaultAnchor(scrollPositionAnchor == .bottom ? .bottom : nil)
             .coordinateSpace(name: infiniteScrollCoordinateSpaceName)
             .onChange(of: effectiveScrollToIDRequest.wrappedValue) { _, newID in
                 guard let newID else { return }
@@ -429,6 +432,18 @@ where Data: RandomAccessCollection,
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 100_000_000)
             topAppeared = true
+        }
+    }
+}
+
+@available(iOS 17.0, macOS 14.0, *)
+private extension View {
+    @ViewBuilder
+    func infiniteScrollDefaultAnchor(_ anchor: UnitPoint?) -> some View {
+        if let anchor {
+            self.defaultScrollAnchor(anchor)
+        } else {
+            self
         }
     }
 }
