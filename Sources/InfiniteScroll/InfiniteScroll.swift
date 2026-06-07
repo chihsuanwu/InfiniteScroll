@@ -1,11 +1,18 @@
 import SwiftUI
 import HuggingGeometryReader
 
-private let COORDINATE_SPACE: String = "InfiniteScrollContainer"
+private let infiniteScrollCoordinateSpaceName = "InfiniteScrollContainer"
+private let scrollOffsetUpdateThreshold: CGFloat = 12
+private let minimumLoadTriggerHeight: CGFloat = 48
 
-@available(iOS 17.0, *)
-struct InfiniteScroll<Data, ID, Content, TopProgress, BottomProgress> : View where Data : RandomAccessCollection, ID : Hashable, Content : View, TopProgress : View, BottomProgress : View {
-
+@available(iOS 17.0, macOS 14.0, *)
+public struct InfiniteScroll<Data, ID, Content, TopProgress, BottomProgress>: View
+where Data: RandomAccessCollection,
+      ID: Hashable,
+      Content: View,
+      TopProgress: View,
+      BottomProgress: View
+{
     let data: Data
     let id: KeyPath<Data.Element, ID>
     let initialFirstVisibleItem: ID?
@@ -13,143 +20,249 @@ struct InfiniteScroll<Data, ID, Content, TopProgress, BottomProgress> : View whe
     let onLoadMore: () -> Void
     let enableLoadPrev: Bool
     let enableLoadMore: Bool
-    
+    let loadingBinding: Binding<Bool>?
+    let scrollPositionBinding: Binding<ID?>?
+    let scrollToIDRequestBinding: Binding<ID?>?
+    let scrollToTopIDRequestBinding: Binding<ID?>?
+    let preventLoadPrevBinding: Binding<Bool>?
+    let contentBottomInset: CGFloat
+    let contentTopInset: CGFloat
+
     @ViewBuilder let topProgress: () -> TopProgress
     @ViewBuilder let bottomProgress: () -> BottomProgress
     @ViewBuilder let content: (Data.Element) -> Content
 
-    @State private var scrollPosition: ID?
-    
-    // Lock for loading to prevent multiple calls
-    @State private var loading: Bool = false
-    
+    public init(
+        data: Data,
+        id: KeyPath<Data.Element, ID>,
+        initialFirstVisibleItem: ID? = nil,
+        onLoadPrev: @escaping () -> Void,
+        onLoadMore: @escaping () -> Void,
+        enableLoadPrev: Bool = true,
+        enableLoadMore: Bool = true,
+        loadingBinding: Binding<Bool>? = nil,
+        scrollPositionBinding: Binding<ID?>? = nil,
+        scrollToIDRequestBinding: Binding<ID?>? = nil,
+        scrollToTopIDRequestBinding: Binding<ID?>? = nil,
+        preventLoadPrevBinding: Binding<Bool>? = nil,
+        contentBottomInset: CGFloat = 0,
+        contentTopInset: CGFloat = 0,
+        @ViewBuilder topProgress: @escaping () -> TopProgress,
+        @ViewBuilder bottomProgress: @escaping () -> BottomProgress,
+        @ViewBuilder content: @escaping (Data.Element) -> Content
+    ) {
+        self.data = data
+        self.id = id
+        self.initialFirstVisibleItem = initialFirstVisibleItem
+        self.onLoadPrev = onLoadPrev
+        self.onLoadMore = onLoadMore
+        self.enableLoadPrev = enableLoadPrev
+        self.enableLoadMore = enableLoadMore
+        self.loadingBinding = loadingBinding
+        self.scrollPositionBinding = scrollPositionBinding
+        self.scrollToIDRequestBinding = scrollToIDRequestBinding
+        self.scrollToTopIDRequestBinding = scrollToTopIDRequestBinding
+        self.preventLoadPrevBinding = preventLoadPrevBinding
+        self.contentBottomInset = contentBottomInset
+        self.contentTopInset = contentTopInset
+        self.topProgress = topProgress
+        self.bottomProgress = bottomProgress
+        self.content = content
+    }
+
+    @State private var internalScrollPosition: ID?
+    @State private var internalLoading = false
     @State private var topAppeared = false
-    
     @State private var loadPrevViewHeight: CGFloat?
     @State private var loadMoreViewHeight: CGFloat?
-    
     @State private var topOffset: CGFloat?
     @State private var bottomOffset: CGFloat?
-    
     @State private var scrollToInitial = true
-    
+
+    private var effectiveScrollPosition: Binding<ID?> {
+        scrollPositionBinding ?? Binding(
+            get: { internalScrollPosition },
+            set: { internalScrollPosition = $0 }
+        )
+    }
+
+    private var effectiveScrollToIDRequest: Binding<ID?> {
+        scrollToIDRequestBinding ?? Binding(get: { nil }, set: { _ in })
+    }
+
+    private var effectiveScrollToTopIDRequest: Binding<ID?> {
+        scrollToTopIDRequestBinding ?? Binding(get: { nil }, set: { _ in })
+    }
+
+    private var loading: Bool {
+        loadingBinding?.wrappedValue ?? internalLoading
+    }
+
     public var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(data, id: id) {
-                    content($0)
-                        .id($0[keyPath: id])
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(data, id: id) { element in
+                        content(element)
+                            .id(element[keyPath: id])
+                    }
+                    if contentBottomInset > 0 {
+                        Color.clear
+                            .frame(height: contentBottomInset)
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.top, contentTopInset + (enableLoadPrev ? (loadPrevViewHeight ?? 0) : 0))
+                .padding(.bottom, enableLoadMore ? (loadMoreViewHeight ?? 0) : 0)
+                .background {
+                    GeometryReader { proxy in
+                        onScroll(proxy: proxy)
+                        return Color.clear
+                    }
                 }
             }
-            .scrollTargetLayout()
-            .padding(.top, enableLoadPrev ? loadPrevViewHeight : nil)
-            .padding(.bottom, enableLoadMore ? loadMoreViewHeight : nil)
-            .background {
-                GeometryReader { proxy -> Color in
-                    onScroll(proxy: proxy)
-                    
-                    return Color.clear
-                }
+            .scrollPosition(id: effectiveScrollPosition, anchor: .bottom)
+            .defaultScrollAnchor(.bottom)
+            .coordinateSpace(name: infiniteScrollCoordinateSpaceName)
+            .onChange(of: effectiveScrollToIDRequest.wrappedValue) { _, newID in
+                guard let newID else { return }
+                scrollProxy.scrollTo(newID, anchor: .bottom)
+                scrollToIDRequestBinding?.wrappedValue = nil
             }
-        }
-        .scrollPosition(id: $scrollPosition)
-        .coordinateSpace(name: COORDINATE_SPACE)
-        .overlay(alignment: .top) {
-            if enableLoadPrev {
-                topProgress()
-                    .readGeometry {
-                        if loadPrevViewHeight != $0.height {
-                            loadPrevViewHeight = $0.height
-                        }
-                    }
-                    .offset(y: -(topOffset ?? 1000))
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if enableLoadMore {
-                bottomProgress()
-                    .readGeometry {
-                        if loadMoreViewHeight != $0.height {
-                            loadMoreViewHeight = $0.height
-                        }
-                    }
-                    .offset(y: bottomOffset ?? 1000)
-            }
-        }
-        .clipped()
-        .onAppear { // dont use task, it will cause scrolling delay
-            initialScroll()
-        }
-        .onChange(of: data.count) { oldValue, newValue in
-            if newValue < oldValue {
-                scrollToInitial = true
-                initialScroll()
-            } else if loading {
+            .onChange(of: effectiveScrollToTopIDRequest.wrappedValue) { _, newID in
+                guard let newID else { return }
                 Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    loading = false
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    scrollProxy.scrollTo(newID, anchor: .top)
+                    scrollToTopIDRequestBinding?.wrappedValue = nil
+                }
+            }
+            .overlay(alignment: .top) {
+                if enableLoadPrev {
+                    topProgress()
+                        .frame(height: minimumLoadTriggerHeight)
+                        .readGeometry { size in
+                            let height = size.height
+                            if loadPrevViewHeight != height {
+                                DispatchQueue.main.async { loadPrevViewHeight = height }
+                            }
+                        }
+                        .offset(y: -(topOffset ?? 1000))
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if enableLoadMore {
+                    bottomProgress()
+                        .frame(height: minimumLoadTriggerHeight)
+                        .readGeometry { size in
+                            let height = size.height
+                            if loadMoreViewHeight != height {
+                                DispatchQueue.main.async { loadMoreViewHeight = height }
+                            }
+                        }
+                        .offset(y: bottomOffset ?? 1000)
+                }
+            }
+            .clipped()
+            .onAppear {
+                initialScroll()
+            }
+            .onChange(of: data.count) { oldValue, newValue in
+                if newValue < oldValue {
+                    let currentID = effectiveScrollPosition.wrappedValue
+                    if let currentID, !data.contains(where: { $0[keyPath: id] == currentID }) {
+                        let survivor = data.last?[keyPath: id] ?? data.first?[keyPath: id]
+                        setScrollPosition(survivor)
+                    }
+                } else if loading {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        setLoading(false)
+                    }
                 }
             }
         }
     }
-    
+
+    private func setScrollPosition(_ value: ID?) {
+        if let binding = scrollPositionBinding {
+            binding.wrappedValue = value
+        } else {
+            internalScrollPosition = value
+        }
+    }
+
+    private func setLoading(_ value: Bool) {
+        if let binding = loadingBinding {
+            binding.wrappedValue = value
+        } else {
+            internalLoading = value
+        }
+    }
+
     private func onScroll(proxy: GeometryProxy) {
-        guard let bound = proxy.bounds(of: .named(COORDINATE_SPACE)) else { return }
+        guard let bound = proxy.bounds(of: .named(infiniteScrollCoordinateSpaceName)) else { return }
 
         let topOffset = bound.minY
         let contentHeight = proxy.frame(in: .global).height
         let bottomOffset = contentHeight - bound.maxY
 
-        Task { @MainActor in
-            if self.topOffset != topOffset {
+        DispatchQueue.main.async {
+            let threshold = scrollOffsetUpdateThreshold
+            if let previous = self.topOffset, abs(previous - topOffset) > threshold {
+                self.topOffset = topOffset
+            } else if self.topOffset == nil {
                 self.topOffset = topOffset
             }
-            
-            if self.bottomOffset != bottomOffset {
+
+            if let previous = self.bottomOffset, abs(previous - bottomOffset) > threshold {
+                self.bottomOffset = bottomOffset
+            } else if self.bottomOffset == nil {
                 self.bottomOffset = bottomOffset
             }
-            
+
             if loading { return }
-            
-            // TODO: fix hard code 0.8
-            if let loadPrevViewHeight, enableLoadPrev {
-                if topOffset <= loadPrevViewHeight * 0.8 && topOffset >= 0 {
-                    if topAppeared {
-                        loading = true
-                        onLoadPrev()
-                    }
+            if preventLoadPrevBinding?.wrappedValue == true { return }
+
+            if enableLoadPrev {
+                let triggerHeight = max(loadPrevViewHeight ?? 0, minimumLoadTriggerHeight)
+                if topOffset <= triggerHeight * 0.8, topOffset >= 0, topAppeared {
+                    setLoading(true)
+                    onLoadPrev()
                 }
             }
-            if let loadPrevViewHeight, enableLoadMore {
-                if bottomOffset <= loadPrevViewHeight * 0.8 && topOffset >= 0 {
-                    loading = true
+            if enableLoadMore {
+                let triggerHeight = max(loadMoreViewHeight ?? 0, minimumLoadTriggerHeight)
+                if bottomOffset <= triggerHeight * 0.8, topOffset >= 0 {
+                    setLoading(true)
                     onLoadMore()
                 }
             }
         }
     }
-    
+
     private func initialScroll() {
-        let first: ID?
-        if initialFirstVisibleItem != nil {
-            first = initialFirstVisibleItem
-        } else {
-            first = data.first?[keyPath: id]
+        let first = initialFirstVisibleItem ?? data.first?[keyPath: id]
+        guard scrollToInitial else { return }
+        scrollToInitial = false
+        if effectiveScrollPosition.wrappedValue == nil {
+            setScrollPosition(first)
         }
-        
-        if scrollToInitial {
-            scrollToInitial = false
-            scrollPosition = first
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                topAppeared = true
-            }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            topAppeared = true
         }
     }
 }
 
-struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress> : View where Data : RandomAccessCollection, ID : Hashable, Content : View, TopProgress : View, BottomProgress : View {
-    
+@available(iOS 14.0, macOS 14.0, *)
+public struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress>: View
+where Data: RandomAccessCollection,
+      ID: Hashable,
+      Content: View,
+      TopProgress: View,
+      BottomProgress: View
+{
     let data: Data
     let id: KeyPath<Data.Element, ID>
     let initialFirstVisibleItem: ID?
@@ -157,56 +270,50 @@ struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress> : Vie
     let onLoadMore: () -> Void
     let enableLoadPrev: Bool
     let enableLoadMore: Bool
-    
+
     @ViewBuilder let topProgress: () -> TopProgress
     @ViewBuilder let bottomProgress: () -> BottomProgress
     @ViewBuilder let content: (Data.Element) -> Content
-    
-    // Lock for loading to prevent multiple calls
-    @State private var loadingPrev: Bool = false
-    @State private var loadingNext: Bool = false
-    
+
+    @State private var loadingPrev = false
+    @State private var loadingNext = false
     @State private var topAppeared = false
     @State private var topID: ID?
     @State private var topItemHeight: CGFloat?
-    
     @State private var containerHeight: CGFloat = 0
-    
     @State private var loadPrevViewHeight: CGFloat?
     @State private var loadMoreViewHeight: CGFloat?
-    
     @State private var topOffset: CGFloat?
     @State private var bottomOffset: CGFloat?
-    
     @State private var scrollToInitial = true
-    
+
     public var body: some View {
         ScrollView {
             ScrollViewReader { proxy in
                 LazyVStack(spacing: 0) {
-                    ForEach(data, id: id) {
-                        if topID == $0[keyPath: id] {
-                            content($0)
+                    ForEach(data, id: id) { element in
+                        let elementID = element[keyPath: id]
+                        if topID == elementID {
+                            content(element)
                                 .readGeometry { size in
-                                    // geometry in lazyStack sometimes will be a very small value
-                                    // need to filter out
-                                    if size.height > 1 && topItemHeight != size.height {
-                                        topItemHeight = size.height
+                                    let height = size.height
+                                    if height > 1, topItemHeight != height {
+                                        DispatchQueue.main.async { topItemHeight = height }
                                     }
                                 }
-                                .id($0[keyPath: id])
+                                .id(elementID)
                         } else {
-                            content($0)
-                                .id($0[keyPath: id])
+                            content(element)
+                                .id(elementID)
                         }
                     }
                 }
                 .padding(.top, enableLoadPrev ? loadPrevViewHeight : nil)
                 .padding(.bottom, enableLoadMore ? loadMoreViewHeight : nil)
                 .background(
-                    GeometryReader { proxy in
-                        Color.clear.onChange(of: proxy.frame(in: .named(COORDINATE_SPACE))) { _ in
-                            onScroll(proxy: proxy)
+                    GeometryReader { geo in
+                        Color.clear.onChange(of: geo.frame(in: .named(infiniteScrollCoordinateSpaceName))) { _ in
+                            onScroll(proxy: geo)
                         }
                     }
                 )
@@ -218,7 +325,8 @@ struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress> : Vie
                         scrollToInitial = true
                         initialScroll(proxy: proxy)
                     } else if loadingPrev {
-                        proxy.scrollTo(topID, anchor: UnitPoint(x: 0, y: (loadPrevViewHeight ?? 0) / (containerHeight - (topItemHeight ?? 0))))
+                        let anchorY = (loadPrevViewHeight ?? 0) / max(containerHeight - (topItemHeight ?? 0), 1)
+                        proxy.scrollTo(topID, anchor: UnitPoint(x: 0, y: anchorY))
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 100_000_000)
                             loadingPrev = false
@@ -232,44 +340,42 @@ struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress> : Vie
                 }
             }
         }
-        .coordinateSpace(name: COORDINATE_SPACE)
-        .overlay(
-            Group {
-                if enableLoadPrev {
-                    topProgress()
-                        .readGeometry {
-                            if loadPrevViewHeight != $0.height {
-                                loadPrevViewHeight = $0.height
-                            }
+        .coordinateSpace(name: infiniteScrollCoordinateSpaceName)
+        .overlay(alignment: .top) {
+            if enableLoadPrev {
+                topProgress()
+                    .readGeometry { size in
+                        let height = size.height
+                        if loadPrevViewHeight != height {
+                            DispatchQueue.main.async { loadPrevViewHeight = height }
                         }
-                        .offset(y: -(topOffset ?? 1000))
-                }
-            },
-            alignment: .top
-        )
-        .overlay(
-            Group {
-                if enableLoadMore {
-                    bottomProgress()
-                        .readGeometry {
-                            if loadMoreViewHeight != $0.height {
-                                loadMoreViewHeight = $0.height
-                            }
+                    }
+                    .offset(y: -(topOffset ?? 1000))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if enableLoadMore {
+                bottomProgress()
+                    .readGeometry { size in
+                        let height = size.height
+                        if loadMoreViewHeight != height {
+                            DispatchQueue.main.async { loadMoreViewHeight = height }
                         }
-                        .offset(y: bottomOffset ?? 1000)
-                }
-            },
-            alignment: .bottom
-        )
+                    }
+                    .offset(y: bottomOffset ?? 1000)
+            }
+        }
         .clipped()
         .readGeometry { size in
-            containerHeight = size.height
+            let height = size.height
+            if containerHeight != height {
+                DispatchQueue.main.async { containerHeight = height }
+            }
         }
     }
-    
+
     private func onScroll(proxy: GeometryProxy) {
-        let bound = proxy.frame(in: .named(COORDINATE_SPACE))
-            
+        let bound = proxy.frame(in: .named(infiniteScrollCoordinateSpaceName))
         let topOffset = -bound.minY
         let contentHeight = proxy.frame(in: .global).height
         let bottomOffset = bound.maxY - containerHeight
@@ -278,50 +384,39 @@ struct InfiniteScrollIOS16<Data, ID, Content, TopProgress, BottomProgress> : Vie
             if topID != data.first?[keyPath: id] {
                 topID = data.first?[keyPath: id]
             }
-
             if self.topOffset != topOffset {
                 self.topOffset = topOffset
             }
-            
             if self.bottomOffset != bottomOffset {
                 self.bottomOffset = bottomOffset
             }
-            
             if loadingPrev || loadingNext { return }
-            
-            // TODO: fix hard code 0.8
-            if let loadPrevViewHeight, enableLoadPrev {
-                if topOffset <= loadPrevViewHeight * 0.8 && topOffset >= 0 {
-                    if topAppeared {
-                        loadingPrev = true
-                        onLoadPrev()
-                    }
+
+            if enableLoadPrev {
+                let triggerHeight = max(loadPrevViewHeight ?? 0, minimumLoadTriggerHeight)
+                if topOffset <= triggerHeight * 0.8, topOffset >= 0, topAppeared {
+                    loadingPrev = true
+                    onLoadPrev()
                 }
             }
-            if let loadMoreViewHeight, enableLoadMore {
-                if bottomOffset <= loadMoreViewHeight * 0.8 && topOffset >= 0 {
+            if enableLoadMore {
+                let triggerHeight = max(loadMoreViewHeight ?? 0, minimumLoadTriggerHeight)
+                if bottomOffset <= triggerHeight * 0.8, topOffset >= 0 {
                     loadingNext = true
                     onLoadMore()
                 }
             }
         }
     }
-    
+
     private func initialScroll(proxy: ScrollViewProxy) {
-        let first: ID?
-        if initialFirstVisibleItem != nil {
-            first = initialFirstVisibleItem
-        } else {
-            first = data.first?[keyPath: id]
-        }
-                
-        if scrollToInitial {
-            scrollToInitial = false
-            proxy.scrollTo(first, anchor: .top)
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                topAppeared = true
-            }
+        let first = initialFirstVisibleItem ?? data.first?[keyPath: id]
+        guard scrollToInitial else { return }
+        scrollToInitial = false
+        proxy.scrollTo(first, anchor: .top)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            topAppeared = true
         }
     }
 }
