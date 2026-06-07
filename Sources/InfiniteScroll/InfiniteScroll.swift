@@ -137,32 +137,38 @@ where Data: RandomAccessCollection,
                     scrollToTopIDRequestBinding?.wrappedValue = nil
                 }
             }
-            .overlay(alignment: .top) {
-                if enableLoadPrev {
-                    topProgress()
-                        .frame(height: minimumLoadTriggerHeight)
-                        .readGeometry { size in
-                            let height = size.height
-                            if loadPrevViewHeight != height {
-                                DispatchQueue.main.async { loadPrevViewHeight = height }
+            .overlay(
+                Group {
+                    if enableLoadPrev {
+                        topProgress()
+                            .frame(height: minimumLoadTriggerHeight)
+                            .readGeometry { size in
+                                let height = size.height
+                                if loadPrevViewHeight != height {
+                                    DispatchQueue.main.async { loadPrevViewHeight = height }
+                                }
                             }
-                        }
-                        .offset(y: -(topOffset ?? 1000))
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if enableLoadMore {
-                    bottomProgress()
-                        .frame(height: minimumLoadTriggerHeight)
-                        .readGeometry { size in
-                            let height = size.height
-                            if loadMoreViewHeight != height {
-                                DispatchQueue.main.async { loadMoreViewHeight = height }
+                            .offset(y: -(topOffset ?? 1000))
+                    }
+                },
+                alignment: .top
+            )
+            .overlay(
+                Group {
+                    if enableLoadMore {
+                        bottomProgress()
+                            .frame(height: minimumLoadTriggerHeight)
+                            .readGeometry { size in
+                                let height = size.height
+                                if loadMoreViewHeight != height {
+                                    DispatchQueue.main.async { loadMoreViewHeight = height }
+                                }
                             }
-                        }
-                        .offset(y: bottomOffset ?? 1000)
-                }
-            }
+                            .offset(y: bottomOffset ?? 1000)
+                    }
+                },
+                alignment: .bottom
+            )
             .clipped()
             .onAppear {
                 initialScroll()
