@@ -119,8 +119,11 @@ where Data: RandomAccessCollection,
                 .padding(.bottom, enableLoadMore ? (loadMoreViewHeight ?? 0) : 0)
                 .background {
                     GeometryReader { proxy in
-                        onScroll(proxy: proxy)
-                        return Color.clear
+                        Color.clear
+                            .onAppear { onScroll(proxy: proxy) }
+                            .onChange(of: proxy.frame(in: .named(infiniteScrollCoordinateSpaceName)).minY) { _, _ in
+                                onScroll(proxy: proxy)
+                            }
                     }
                 }
             }
@@ -235,7 +238,9 @@ where Data: RandomAccessCollection,
 
             if enableLoadPrev {
                 let triggerHeight = max(loadPrevViewHeight ?? 0, minimumLoadTriggerHeight)
-                if topOffset <= triggerHeight * 0.8, topOffset >= 0, topAppeared {
+                if topOffset <= triggerHeight * 0.8,
+                   topOffset >= -scrollOffsetUpdateThreshold,
+                   topAppeared {
                     setLoading(true)
                     onLoadPrev()
                 }
