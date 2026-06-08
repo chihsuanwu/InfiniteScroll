@@ -186,6 +186,19 @@ where Data: RandomAccessCollection,
                         let survivor = data.last?[keyPath: id] ?? data.first?[keyPath: id]
                         setScrollPosition(survivor)
                     }
+                } else if loading, newValue > oldValue {
+                    let anchorID = effectiveScrollToTopIDRequest.wrappedValue
+                        ?? effectiveScrollPosition.wrappedValue
+                    Task { @MainActor in
+                        if let anchorID,
+                           data.contains(where: { $0[keyPath: id] == anchorID }) {
+                            try? await Task.sleep(nanoseconds: 80_000_000)
+                            scrollProxy.scrollTo(anchorID, anchor: .top)
+                            scrollToTopIDRequestBinding?.wrappedValue = nil
+                        }
+                        try? await Task.sleep(nanoseconds: 20_000_000)
+                        setLoading(false)
+                    }
                 } else if loading {
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 100_000_000)
