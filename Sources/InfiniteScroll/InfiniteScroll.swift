@@ -120,8 +120,8 @@ struct InfiniteScroll<Data, ID, Content, TopProgress, BottomProgress> : View whe
                     }
                 }
             }
-            if let loadPrevViewHeight, enableLoadMore {
-                if bottomOffset <= loadPrevViewHeight * 0.8 && topOffset >= 0 {
+            if let loadMoreViewHeight, enableLoadMore {
+                if bottomOffset <= loadMoreViewHeight * 0.8 && topOffset >= 0 {
                     loading = true
                     onLoadMore()
                 }
